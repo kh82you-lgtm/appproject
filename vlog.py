@@ -12,6 +12,54 @@ st.set_page_config(page_title="나만의 브이로그 메이커", layout="wide")
 st.title("🎬 초간단 브이로그 제작 프로그램")
 st.write("사진을 올리고, 자막과 음악을 넣어 나만의 스토리보드를 만들어보세요!")
 
+# 전체 스타일(파스텔 블루 그라데이션 + 귀여운 폰트/버튼)
+st.markdown(
+        """
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Nanum+Pen+Script&family=Patrick+Hand&display=swap');
+        :root{ --pastel-pink: #ff9ac2; --pastel-blue-1: #d7f0ff; --pastel-blue-2: #cfefff; }
+        /* 앱 배경 그라데이션 */
+        [data-testid="stAppViewContainer"] {
+            background: linear-gradient(135deg, var(--pastel-blue-1) 0%, var(--pastel-blue-2) 50%, #fff6ff 100%);
+            background-attachment: fixed;
+        }
+        /* 사이드바 */
+        [data-testid="stSidebar"] .css-1d391kg {
+            background: linear-gradient(180deg, rgba(207,239,255,0.8), rgba(247,251,255,0.9));
+        }
+        /* 폰트 스타일 (타이틀/헤더는 귀여운 손글씨 느낌) */
+        .stApp, .css-18e3th9, .css-10trblm, .css-1d391kg {
+            font-family: 'Patrick Hand', 'Nanum Pen Script', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+            color: #2b2b2b;
+        }
+        h1, .stHeader, .css-18e3th9 {
+            font-family: 'Patrick Hand', 'Nanum Pen Script', cursive;
+        }
+        /* 버튼 스타일 */
+        div.stButton > button {
+            background: linear-gradient(90deg, var(--pastel-pink), #ffd1e6);
+            color: #222;
+            border-radius: 12px;
+            padding: 8px 14px;
+            border: none;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+            font-weight: 700;
+        }
+        /* 이미지 카드 */
+        .stImage > img {
+            border-radius: 14px !important;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.06) !important;
+        }
+        /* expander 배경을 조금 부드럽게 */
+        .streamlit-expanderHeader {
+            background: rgba(255,255,255,0.6);
+            border-radius: 12px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+)
+
 # 프로그램 내부 저장소(세션 상태) 초기화
 if "project_images" not in st.session_state:
     st.session_state.project_images = []
@@ -162,9 +210,9 @@ if uploaded_files:
                 "name": file.name,
                 "original": img,
                 "edited": img,
-                "text": "지아랑 온유는 마라탕을 좋아해♥",
+                "text": "",
                 "position": "상단 (Top)",
-                "color": "#00FF00", 
+                "color": "#FFB6C1", 
                 "size": 80
             })
 
