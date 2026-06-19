@@ -39,62 +39,64 @@ def wrap_text(text, max_chars=20):
     return "\n".join(final_lines)
 
 # -------------------------------------------------------------------------
-# [함수] 이미지에 자막 합성하기 (글자 크기 버그 해결 및 반투명 배경 추가)
+# [함수] 이미지에 자막 합성하기 (한글 깨짐 해결 및 글자 테두리 효과)
 # -------------------------------------------------------------------------
 def draw_text_on_image(image, text, position, color, size):
-    # 원본 이미지 복사 및 드로우 객체 생성
     img_to_draw = image.copy()
+    draw = ImageDraw.Draw(img_to_draw)
+    width, height = img_to_draw.size
     
-    # 💥 글자 크기가 실제로 커지도록 강제하는 한글 폰트 탐색 로직 (경로 보강)
+    # 💥 [핵심] 확실하게 100% 한글이 지원되는 시스템 폰트만 엄선하여 탐색
     font = None
     font_paths = [
-        "C:/Windows/Fonts/malgun.ttf",          # Windows 맑은고딕
-        "C:/Windows/Fonts/gulim.ttc",           # Windows 굴림
-        "/System/Library/Fonts/Supplemental/AppleGothic.ttf", # Mac 애플고딕
+        "C:/Windows/Fonts/malgun.ttf",          # 윈도우 맑은 고딕 (가장 확실)
+        "C:/Windows/Fonts/gulim.ttc",           # 윈도우 굴림
+        "C:/Windows/Fonts/batang.ttc",          # 윈도우 바탕
+        "/System/Library/Fonts/Supplemental/AppleGothic.ttf", # 맥 애플고딕
         "/System/Library/Fonts/Cache/AppleGothic.ttf",
-        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"     # Linux 나눔고딕
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf" # 맥 유니코드
     ]
     
     for path in font_paths:
         if os.path.exists(path):
             try:
-                # 사용자가 선택한 size가 그대로 반영됩니다!
                 font = ImageFont.truetype(path, int(size))
                 break
             except:
                 continue
                 
-    # 만약 위 경로에서 못 찾으면 Pillow가 제공하는 가변 크기 내장 폰트 사용
+    # 만약 위의 절대 경로에서 실패할 경우 시스템 환경 변수에서 맑은고딕 자동 검색
     if font is None:
         try:
-            font = ImageFont.load_default(size=int(size)) # Pillow 최신 버전 대응
+            font = ImageFont.truetype("malgun.ttf", int(size))
         except:
-            font = ImageFont.load_default() # 최후의 수단 (크기 고정될 수 있음)
+            try:
+                font = ImageFont.truetype("gulim.ttc", int(size))
+            except:
+                # 최후의 보루: Pillow 최신 버전 가변 기본 폰트
+                try:
+                    font = ImageFont.load_default(size=int(size))
+                except:
+                    font = ImageFont.load_default()
             
-    # 20자 기준 줄바꿈
+    # 20자 기준 줄바꿈 처리
     wrapped_text = wrap_text(text, max_chars=20)
     lines = wrapped_text.split('\n')
     num_lines = len(lines)
     
-    width, height = img_to_draw.size
-    
-    # 글자 크기 및 배치 계산을 위한 임시 드로우
-    temp_draw = ImageDraw.Draw(img_to_draw)
-    
-    # 전체 텍스트 박스 크기 계산
+    # 전체 텍스트 상자의 대략적인 가로/세로 크기 계산
     max_line_width = 0
     line_heights = []
     
     for line in lines:
-        if hasattr(temp_draw, "textbbox") and font:
-            bbox = temp_draw.textbbox((0, 0), line, font=font)
+        if font and hasattr(draw, "textbbox"):
+            bbox = draw.textbbox((0, 0), line, font=font)
             line_w = bbox[2] - bbox[0]
             line_h = bbox[3] - bbox[1]
         else:
-            # 폰트를 정말 못 가져왔을 때의 예외 처리 계산식
-            line_w = len(line) * (size * 0.7)
+            line_w = len(line) * (size * 0.75)
             line_h = size
-        
+            
         if line_w > max_line_width:
             max_line_width = line_w
         line_heights.append(line_h)
@@ -109,42 +111,30 @@ def draw_text_on_image(image, text, position, color, size):
     else:
         y = height - total_text_height - 80
         
-    # 🎬 가독성을 위한 검은색 반투명 자막 바 배경 그리기
-    # 텍스트가 들어갈 영역에 살짝 여백(Padding)을 줍니다.
-    padding = 20
-    bg_layer = Image.new("RGBA", img_to_draw.size, (0, 0, 0, 0))
-    bg_draw = ImageDraw.Draw(bg_layer)
-    
-    bg_x1 = (width - max_line_width) // 2 - padding
-    bg_y1 = y - padding
-    bg_x2 = (width + max_line_width) // 2 + padding
-    bg_y2 = y + total_text_height + padding
-    
-    # 범위를 벗어나지 않도록 안전조치
-    bg_x1 = max(10, bg_x1)
-    bg_x2 = min(width - 10, bg_x2)
-    
-    # 검은색(0,0,0)에 투명도 140(대략 55%)으로 배경 박스 그리기
-    bg_draw.rectangle([bg_x1, bg_y1, bg_x2, bg_y2], fill=(0, 0, 0, 140))
-    
-    # 원본 이미지와 반투명 배경 레이어 합성
-    img_to_draw = Image.alpha_composite(img_to_draw.convert("RGBA"), bg_layer)
-    final_draw = ImageDraw.Draw(img_to_draw)
-    
-    # 2. 줄 단위로 중앙 정렬하여 글씨 쓰기
+    # 2. 회색 박스 배경을 없애고, 글자 자체만 중앙 정렬하여 그리기
     current_y = y
     for line in lines:
-        if hasattr(final_draw, "textbbox") and font:
-            bbox = final_draw.textbbox((0, 0), line, font=font)
+        if font and hasattr(draw, "textbbox"):
+            bbox = draw.textbbox((0, 0), line, font=font)
             line_w = bbox[2] - bbox[0]
         else:
-            line_w = len(line) * (size * 0.7)
+            line_w = len(line) * (size * 0.75)
             
         line_x = (width - line_w) // 2
-        final_draw.text((line_x, current_y), line, fill=color, font=font)
+        
+        # ⭐ [가독성 강화] 어떤 배경 사진에서도 글씨가 잘 보이도록 검은색 테두리(외곽선) 넣기
+        # 글씨 주위 8방향에 얇게 검은색 글씨를 먼저 적어 테두리 효과를 만듭니다.
+        outline_amount = max(1, int(size // 25)) # 글자 크기에 비례하는 영리한 테두리 두께
+        for adj_x in range(-outline_amount, outline_amount + 1):
+            for adj_y in range(-outline_amount, outline_amount + 1):
+                if adj_x != 0 or adj_y != 0:
+                    draw.text((line_x + adj_x, current_y + adj_y), line, fill="#000000", font=font)
+        
+        # 테두리 위에 사용자가 선택한 본래 색상(초록색 등)의 글자를 얹어줍니다.
+        draw.text((line_x, current_y), line, fill=color, font=font)
         current_y += (size + 15) # 줄 간격 격차
         
-    return img_to_draw.convert("RGB")
+    return img_to_draw
 
 # -------------------------------------------------------------------------
 # 사이드바: 3단계 - 저작권 프리 배경음악 설정
@@ -177,10 +167,10 @@ if uploaded_files:
                 "name": file.name,
                 "original": img,
                 "edited": img,
-                "text": "지아랑 온유는 올리브영을 좋아해♥",
+                "text": "지아랑 온유는 마라탕을 좋아해♥",
                 "position": "상단 (Top)",
-                "color": "#00FF00",
-                "size": 50  # 기본 글자 크기를 키웠습니다.
+                "color": "#00FF00", # 사용자가 좋아하시는 예쁜 형광 초록색
+                "size": 80
             })
 
 # 업로드된 사진 편집 창 표시
@@ -196,7 +186,7 @@ if st.session_state.project_images:
                 txt = st.text_input(f"자막 타이핑 (최대 20자 제안)", value=item["text"], key=f"txt_{i}")
                 pos = st.selectbox("자막 위치", ["상단 (Top)", "중단 (Middle)", "하단 (Bottom)"], index=["상단 (Top)", "중단 (Middle)", "하단 (Bottom)"].index(item["position"]), key=f"pos_{i}")
                 col_picker = st.color_picker("글자 색상 선택", value=item["color"], key=f"col_{i}")
-                size_slider = st.slider("글자 크기", 20, 200, value=item["size"], key=f"size_{i}") # 최소 크기를 20으로 조절
+                size_slider = st.slider("글자 크기", 20, 200, value=item["size"], key=f"size_{i}")
                 
                 if st.button(f"✨ {i+1}번 사진 자막 적용하기", key=f"btn_{i}"):
                     st.session_state.project_images[i]["text"] = txt
@@ -206,11 +196,11 @@ if st.session_state.project_images:
                     
                     edited_img = draw_text_on_image(item["original"], txt, pos, col_picker, size_slider)
                     st.session_state.project_images[i]["edited"] = edited_img
-                    st.success("자막 크기와 정렬이 정상적으로 반영되었습니다!")
+                    st.success("한글 자막이 완벽하게 반영되었습니다!")
                     st.rerun()
                 
             with col2:
-                st.write("🔍 미리보기 (좌우 센터 정렬 및 글자 배경 바 적용)")
+                st.write("🔍 미리보기 (좌우 센터 정렬 및 글자 외곽선 효과 적용)")
                 st.image(st.session_state.project_images[i]["edited"], use_container_width=True)
 
 # -------------------------------------------------------------------------
