@@ -260,8 +260,11 @@ if st.session_state.project_images:
                 # 2. 최종 동영상 출력 임시 파일 생성
                 output_video_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
                 
-                # imageio로 비디오 파일 저장
-                imageio.mimsave(output_video_path, frames, fps=fps, codec='libx264')
+                # imageio로 비디오 파일 저장 (FFMPEG backend 사용)
+                writer = imageio.get_writer(output_video_path, fps=fps, codec='libx264')
+                for frame in frames:
+                    writer.append_data(frame)
+                writer.close()
                 
                 # 5. 완성 파일 읽어와서 저장 및 다운로드 기능 활성화
                 with open(output_video_path, "rb") as f:
