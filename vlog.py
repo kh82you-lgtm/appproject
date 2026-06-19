@@ -2,6 +2,9 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
 import os
 import urllib.request
+import tempfile
+# 🎬 동영상 제작을 위한 라이브러리 추가
+from moviepy.editor import ImageClip, ConcatenateVideoClip, AudioFileClip
 
 # 1. 페이지 기본 설정
 st.set_page_config(page_title="나만의 브이로그 메이커", layout="wide")
@@ -17,33 +20,24 @@ if "project_images" not in st.session_state:
 # -------------------------------------------------------------------------
 @st.cache_resource
 def load_stable_korean_font(size):
-    """
-    로컬 시스템 폰트에 의존하지 않고, 인터넷(네이버 오픈소스 저장소)에서 
-    직접 나눔고딕 한글 폰트를 다운로드하여 어떤 환경에서든 100% 한글이 나오도록 보장합니다.
-    """
     font_filename = "NanumGothic.ttf"
-    # 현재 파이썬 파일이 있는 위치에 폰트가 없으면 자동 다운로드
     if not os.path.exists(font_filename):
         try:
             url = "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
             urllib.request.urlretrieve(url, font_filename)
-        except Exception as e:
-            # 다운로드 실패 시 차선책으로 시스템 폰트 경로 탐색
+        except:
             pass
 
-    # 다운로드한 폰트 로드 시도
     if os.path.exists(font_filename):
         try:
             return ImageFont.truetype(font_filename, int(size))
         except:
             pass
 
-    # 백업용: 시스템 기본 한글 폰트 경로들
     font_paths = [
-        "C:/Windows/Fonts/malgun.ttf",          # Windows 맑은 고딕
-        "C:/Windows/Fonts/gulim.ttc",           # Windows 굴림
-        "/System/Library/Fonts/Supplemental/AppleGothic.ttf", # Mac 애플고딕
-        "/System/Library/Fonts/Cache/AppleGothic.ttf"
+        "C:/Windows/Fonts/malgun.ttf",
+        "C:/Windows/Fonts/gulim.ttc",
+        "/System/Library/Fonts/Supplemental/AppleGothic.ttf"
     ]
     for path in font_paths:
         if os.path.exists(path):
@@ -51,8 +45,6 @@ def load_stable_korean_font(size):
                 return ImageFont.truetype(path, int(size))
             except:
                 continue
-
-    # 최후의 수단 (이 경우 한글이 깨질 수 있으므로 콘솔에 경고)
     return ImageFont.load_default()
 
 # -------------------------------------------------------------------------
@@ -62,7 +54,6 @@ def wrap_text(text, max_chars=20):
     words = text.split(' ')
     lines = []
     current_line = ""
-    
     for word in words:
         if len(current_line + word) <= max_chars:
             current_line += word + " "
@@ -71,7 +62,6 @@ def wrap_text(text, max_chars=20):
             current_line = word + " "
     if current_line:
         lines.append(current_line.strip())
-        
     final_lines = []
     for line in lines:
         while len(line) > max_chars:
@@ -79,29 +69,23 @@ def wrap_text(text, max_chars=20):
             line = line[max_chars:]
         if line:
             final_lines.append(line)
-            
     return "\n".join(final_lines)
 
 # -------------------------------------------------------------------------
-# [함수] 이미지에 자막 합성하기 (온라인 폰트 다운로드 방식으로 엑박 완전 해결)
+# [함수] 이미지에 자막 합성하기
 # -------------------------------------------------------------------------
 def draw_text_on_image(image, text, position, color, size):
     img_to_draw = image.copy()
     draw = ImageDraw.Draw(img_to_draw)
     width, height = img_to_draw.size
     
-    # 💥 안전한 온라인 나눔고딕 한글 폰트 로드 (가변 크기 적용)
     font = load_stable_korean_font(size)
-            
-    # 20자 기준 줄바꿈 처리
     wrapped_text = wrap_text(text, max_chars=20)
     lines = wrapped_text.split('\n')
     num_lines = len(lines)
     
-    # 전체 텍스트 상자의 가로/세로 크기 정확하게 계산
     max_line_width = 0
     line_heights = []
-    
     for line in lines:
         if font and hasattr(draw, "textbbox"):
             bbox = draw.textbbox((0, 0), line, font=font)
@@ -110,15 +94,12 @@ def draw_text_on_image(image, text, position, color, size):
         else:
             line_w = len(line) * (size * 0.75)
             line_h = size
-            
         if line_w > max_line_width:
             max_line_width = line_w
         line_heights.append(line_h)
         
-    # 줄 바꿈 간격을 고려한 전체 높이
     total_text_height = sum(line_heights) + (15 * (num_lines - 1))
     
-    # 1. 세로(Y축) 시작 위치 결정
     if position == "상단 (Top)":
         y = 60
     elif position == "중단 (Middle)":
@@ -126,7 +107,6 @@ def draw_text_on_image(image, text, position, color, size):
     else:
         y = height - total_text_height - 80
         
-    # 2. 글자 자체만 중앙 정렬하여 선명하게 그리기
     current_y = y
     for line in lines:
         if font and hasattr(draw, "textbbox"):
@@ -137,14 +117,13 @@ def draw_text_on_image(image, text, position, color, size):
             
         line_x = (width - line_w) // 2
         
-        # ✨ 어떤 사진 배경에서도 초록색 글자가 잘 보이도록 검은색 테두리 효과 추가
+        # 글자 외곽선 효과
         outline_amount = max(1, int(size // 25)) 
         for adj_x in range(-outline_amount, outline_amount + 1):
             for adj_y in range(-outline_amount, outline_amount + 1):
                 if adj_x != 0 or adj_y != 0:
                     draw.text((line_x + adj_x, current_y + adj_y), line, fill="#000000", font=font)
         
-        # 검은색 테두리 위에 사용자가 선택한 본래 색상(초록색) 글자 쓰기
         draw.text((line_x, current_y), line, fill=color, font=font)
         current_y += (size + 15) 
         
@@ -162,10 +141,11 @@ bgm_list = {
 }
 
 selected_bgm = st.sidebar.selectbox("무료 BGM 리스트", list(bgm_list.keys()))
+bgm_url = bgm_list[selected_bgm]
 
-if bgm_list[selected_bgm]:
+if bgm_url:
     st.sidebar.write("🎧 BGM 미리듣기:")
-    st.sidebar.audio(bgm_list[selected_bgm], format="audio/mp3")
+    st.sidebar.audio(bgm_url, format="audio/mp3")
 
 # -------------------------------------------------------------------------
 # 메인 화면: 1단계 - 사진 업로드 및 자막 편집
@@ -187,17 +167,16 @@ if uploaded_files:
                 "size": 80
             })
 
-# 업로드된 사진 편집 창 표시
 if st.session_state.project_images:
     st.write("---")
     st.subheader("🖼️ 한 장 한 장 자막 완성하기")
     
     for i, item in enumerate(st.session_state.project_images):
-        with st.expander(f"📷 {i+1}번 사진 편집: {item['name']}", expanded=True):
+        with st.expander(f"📷 {i+1}번 사진 편집: {item['name']}", expanded=False): # 가독성을 위해 기본 접힘 상태로 변경
             col1, col2 = st.columns([1, 1])
             
             with col1:
-                txt = st.text_input(f"자막 타이핑 (최대 20자 제안)", value=item["text"], key=f"txt_{i}")
+                txt = st.text_input(f"자막 타이핑", value=item["text"], key=f"txt_{i}")
                 pos = st.selectbox("자막 위치", ["상단 (Top)", "중단 (Middle)", "하단 (Bottom)"], index=["상단 (Top)", "중단 (Middle)", "하단 (Bottom)"].index(item["position"]), key=f"pos_{i}")
                 col_picker = st.color_picker("글자 색상 선택", value=item["color"], key=f"col_{i}")
                 size_slider = st.slider("글자 크기", 20, 200, value=item["size"], key=f"size_{i}")
@@ -210,47 +189,130 @@ if st.session_state.project_images:
                     
                     edited_img = draw_text_on_image(item["original"], txt, pos, col_picker, size_slider)
                     st.session_state.project_images[i]["edited"] = edited_img
-                    st.success("한글 자막이 완벽하게 반영되었습니다!")
+                    st.success("자막이 정상 반영되었습니다!")
                     st.rerun()
                 
             with col2:
-                st.write("🔍 미리보기 (좌우 센터 정렬 및 글자 외곽선 효과 적용)")
                 st.image(st.session_state.project_images[i]["edited"], use_container_width=True)
 
 # -------------------------------------------------------------------------
-# 메인 화면: 2단계 - 순서 정하기 및 편집(추가/삭제)
+# 메인 화면: 2단계 - 순서 정하기 및 편집
 # -------------------------------------------------------------------------
 if st.session_state.project_images:
     st.write("---")
     st.header("🔀 2단계: 순서 정하기 및 관리")
     
-    st.subheader("❌ 사진 제외하기")
-    delete_target = st.selectbox("삭제할 사진을 선택하세요", ["선택 안함"] + [f"{idx+1}번: {img['name']}" for idx, img in enumerate(st.session_state.project_images)])
-    if delete_target != "선택 안함":
-        target_idx = int(delete_target.split("번")[0]) - 1
-        if st.button("선택한 사진 최종 삭제"):
-            st.session_state.project_images.pop(target_idx)
+    col_m1, col_m2 = st.columns(2)
+    with col_m1:
+        st.subheader("❌ 사진 제외하기")
+        delete_target = st.selectbox("삭제할 사진 선택", ["선택 안함"] + [f"{idx+1}번: {img['name']}" for idx, img in enumerate(st.session_state.project_images)])
+        if delete_target != "선택 안함":
+            target_idx = int(delete_target.split("번")[0]) - 1
+            if st.button("선택한 사진 최종 삭제"):
+                st.session_state.project_images.pop(target_idx)
+                st.rerun()
+
+    with col_m2:
+        st.subheader("🔄 순서 재배치")
+        new_order = []
+        for idx, item in enumerate(st.session_state.project_images):
+            chosen_pos = st.number_input(f"'{item['name']}' ({idx+1}번) -> 이동할 위치:", min_value=1, max_value=len(st.session_state.project_images), value=idx+1, key=f"order_{idx}")
+            new_order.append((chosen_pos, item))
+            
+        if st.button("순서 변경 적용하기"):
+            new_order.sort(key=lambda x: x[0])
+            st.session_state.project_images = [item[1] for item in new_order]
+            st.success("순서가 변경되었습니다!")
             st.rerun()
 
-    st.subheader("🔄 순서 재배치")
-    new_order = []
-    for idx, item in enumerate(st.session_state.project_images):
-        chosen_pos = st.number_input(f"'{item['name']}'의 현재 위치: {idx+1} -> 이동할 위치:", min_value=1, max_value=len(st.session_state.project_images), value=idx+1, key=f"order_{idx}")
-        new_order.append((chosen_pos, item))
-        
-    if st.button("순서 변경 적용하기"):
-        new_order.sort(key=lambda x: x[0])
-        st.session_state.project_images = [item[1] for item in new_order]
-        st.success("순서가 성공적으로 변경되었습니다!")
-        st.rerun()
-
     # -------------------------------------------------------------------------
-    # 최종 확인 존
+    # 최종 확인 및 🎬 동영상 제작 엔진 (새로 추가된 핵심 로직)
     # -------------------------------------------------------------------------
     st.write("---")
-    st.header("🎬 최종 브이로그 스토리보드 확인")
-    st.write(f"🎵 적용된 BGM: **{selected_bgm}**")
+    st.header("🎬 3단계: 최종 브이로그 동영상 렌더링 및 다운로드")
+    st.write(f"🎵 현재 선택된 배경음악: **{selected_bgm}**")
     
+    # 동영상 설정 옵션
+    duration_per_image = st.slider("⏱️ 사진 1장당 노출 시간 (초)", 1, 10, value=3)
+    
+    if st.button("🚀 MP4 고화질 브이로그 영상 제작 시작", type="primary"):
+        with st.spinner("🎬 자막 사진들과 음악을 융합하여 동영상을 만드는 중입니다... 잠시만 기다려주세요!"):
+            try:
+                clips = []
+                temp_files = []
+                
+                # 1. 자막이 적용된 이미지들을 임시 파일로 변환 후 무비클립으로 로드
+                for item in st.session_state.project_images:
+                    tmp_img = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+                    item["edited"].save(tmp_img.name)
+                    temp_files.append(tmp_img.name)
+                    
+                    # 각 클립 생성 및 시간 부여
+                    image_clip = ImageClip(tmp_img.name).set_duration(duration_per_image)
+                    clips.append(image_clip)
+                
+                # 2. 이미지 클립 순서대로 자연스럽게 이어붙이기
+                video = ConcatenateVideoClip(clips, method="compose")
+                total_duration = video.duration
+                
+                # 3. 배경음악(Audio) 합성 로직
+                if bgm_url:
+                    # 음악 파일 임시 다운로드
+                    tmp_audio = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+                    urllib.request.urlretrieve(bgm_url, tmp_audio.name)
+                    temp_files.append(tmp_audio.name)
+                    
+                    # 오디오 파일 로드 후 비디오 길이에 맞게 자르기
+                    audio_clip = AudioFileClip(tmp_audio.name).set_duration(total_duration)
+                    video = video.set_audio(audio_clip)
+                
+                # 4. 최종 동영상 출력 임시 파일 생성
+                output_video_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
+                
+                # 코덱을 지정해 비디오 파일 굽기 (스트리밍 표준 파일 형식 지원)
+                video.write_videofile(
+                    output_video_path, 
+                    fps=24, 
+                    codec="libx264", 
+                    audio_codec="aac",
+                    logger=None # 지저분한 로그창 가리기
+                )
+                
+                # 클립 닫기 (메모리 해제)
+                video.close()
+                for c in clips:
+                    c.close()
+                
+                # 5. 완성 파일 읽어와서 저장 및 다운로드 기능 활성화
+                with open(output_video_path, "rb") as f:
+                    video_bytes = f.read()
+                
+                st.success("🎉 성공적으로 브이로그 영상이 탄생했습니다! 아래에서 확인하고 다운로드하세요.")
+                
+                # 웹뷰 미리보기 플레이어
+                st.video(video_bytes)
+                
+                # 최종 PC/모바일 저장 버튼
+                st.download_button(
+                    label="💾 내 컴퓨터/폰에 브이로그 동영상 저장하기",
+                    data=video_bytes,
+                    file_name="my_vlog.mp4",
+                    mime="video/mp4"
+                )
+                
+                # 사용된 임시 파일들 정리정돈
+                for path in temp_files:
+                    if os.path.exists(path):
+                        os.remove(path)
+                if os.path.exists(output_video_path):
+                    os.remove(output_video_path)
+                    
+            except Exception as e:
+                st.error(f"동영상 제작 중 예기치 못한 에러가 발생했습니다: {e}")
+
+    # 최종 스토리보드 스냅샷 리스트 표시
+    st.write("---")
+    st.subheader("🖼️ 현재 정렬된 최종 스토리보드 구성")
     final_cols = st.columns(len(st.session_state.project_images))
     for idx, item in enumerate(st.session_state.project_images):
         with final_cols[idx]:
