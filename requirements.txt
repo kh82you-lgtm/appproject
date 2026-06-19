@@ -4,6 +4,6 @@ matplotlib
 seaborn
 setuptools>=70.0.0
 wheel
-moviepy==2.2.1
+opencv-python
+imageio
 numpy<2.0
-pydub

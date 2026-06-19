@@ -3,8 +3,9 @@ from PIL import Image, ImageDraw, ImageFont
 import os
 import urllib.request
 import tempfile
-# 🎬 동영상 제작을 위한 라이브러리 추가
-from moviepy.editor import ImageClip, concatenate_videoclips, AudioFileClip
+import numpy as np
+import imageio
+import cv2
 
 # 1. 페이지 기본 설정
 st.set_page_config(page_title="나만의 브이로그 메이커", layout="wide")
@@ -238,50 +239,29 @@ if st.session_state.project_images:
     if st.button("🚀 MP4 고화질 브이로그 영상 제작 시작", type="primary"):
         with st.spinner("🎬 자막 사진들과 음악을 융합하여 동영상을 만드는 중입니다... 잠시만 기다려주세요!"):
             try:
-                clips = []
+                frames = []
                 temp_files = []
+                fps = 24
                 
-                # 1. 자막이 적용된 이미지들을 임시 파일로 변환 후 무비클립으로 로드
+                # 1. 자막이 적용된 이미지들을 프레임으로 변환
                 for item in st.session_state.project_images:
                     tmp_img = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
                     item["edited"].save(tmp_img.name)
                     temp_files.append(tmp_img.name)
                     
-                    # 각 클립 생성 및 시간 부여
-                    image_clip = ImageClip(tmp_img.name).set_duration(duration_per_image)
-                    clips.append(image_clip)
-                
-                # 2. 이미지 클립 순서대로 자연스럽게 이어붙이기
-                video = concatenate_videoclips(clips, method="compose")
-                total_duration = video.duration
-                
-                # 3. 배경음악(Audio) 합성 로직
-                if bgm_url:
-                    # 음악 파일 임시 다운로드
-                    tmp_audio = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
-                    urllib.request.urlretrieve(bgm_url, tmp_audio.name)
-                    temp_files.append(tmp_audio.name)
+                    # 이미지를 numpy 배열로 로드
+                    img = imageio.imread(tmp_img.name)
                     
-                    # 오디오 파일 로드 후 비디오 길이에 맞게 자르기
-                    audio_clip = AudioFileClip(tmp_audio.name).set_duration(total_duration)
-                    video = video.set_audio(audio_clip)
+                    # duration_per_image 초 동안 프레임 반복
+                    frame_count = int(fps * duration_per_image)
+                    for _ in range(frame_count):
+                        frames.append(img)
                 
-                # 4. 최종 동영상 출력 임시 파일 생성
+                # 2. 최종 동영상 출력 임시 파일 생성
                 output_video_path = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False).name
                 
-                # 코덱을 지정해 비디오 파일 굽기 (스트리밍 표준 파일 형식 지원)
-                video.write_videofile(
-                    output_video_path, 
-                    fps=24, 
-                    codec="libx264", 
-                    audio_codec="aac",
-                    logger=None # 지저분한 로그창 가리기
-                )
-                
-                # 클립 닫기 (메모리 해제)
-                video.close()
-                for c in clips:
-                    c.close()
+                # imageio로 비디오 파일 저장
+                imageio.mimsave(output_video_path, frames, fps=fps, codec='libx264')
                 
                 # 5. 완성 파일 읽어와서 저장 및 다운로드 기능 활성화
                 with open(output_video_path, "rb") as f:
