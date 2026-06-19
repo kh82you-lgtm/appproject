@@ -244,16 +244,32 @@ if st.session_state.project_images:
                 fps = 24
                 
                 # 1. 자막이 적용된 이미지들을 프레임으로 변환
+                # 모든 이미지가 동일한 크기여야 하므로 첫 이미지 기준으로 크기를 정하고
+                # 16의 배수로 정렬하여 FFMPEG 호환성 문제를 예방합니다.
+                target_w = None
+                target_h = None
+                def align16(x):
+                    return ((x + 15) // 16) * 16
+
+                frame_count = int(fps * duration_per_image)
                 for item in st.session_state.project_images:
                     tmp_img = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
                     item["edited"].save(tmp_img.name)
                     temp_files.append(tmp_img.name)
-                    
-                    # 이미지를 numpy 배열로 로드
-                    img = imageio.imread(tmp_img.name)
-                    
+
+                    # PIL로 열어 RGB로 통일하고 크기 조정
+                    pil_img = Image.open(tmp_img.name).convert("RGB")
+                    w, h = pil_img.size
+                    if target_w is None:
+                        target_w = align16(w)
+                        target_h = align16(h)
+
+                    if pil_img.size != (target_w, target_h):
+                        pil_img = pil_img.resize((target_w, target_h), Image.LANCZOS)
+
+                    img = np.array(pil_img)
+
                     # duration_per_image 초 동안 프레임 반복
-                    frame_count = int(fps * duration_per_image)
                     for _ in range(frame_count):
                         frames.append(img)
                 
