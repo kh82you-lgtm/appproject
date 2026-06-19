@@ -4,7 +4,7 @@ import os
 import urllib.request
 import tempfile
 # 🎬 동영상 제작을 위한 라이브러리 추가
-from moviepy.editor import ImageClip, ConcatenateVideoClip, AudioFileClip
+from moviepy.editor import ImageClip, concatenate_videoclips, AudioFileClip
 
 # 1. 페이지 기본 설정
 st.set_page_config(page_title="나만의 브이로그 메이커", layout="wide")
@@ -252,7 +252,7 @@ if st.session_state.project_images:
                     clips.append(image_clip)
                 
                 # 2. 이미지 클립 순서대로 자연스럽게 이어붙이기
-                video = ConcatenateVideoClip(clips, method="compose")
+                video = concatenate_videoclips(clips, method="compose")
                 total_duration = video.duration
                 
                 # 3. 배경음악(Audio) 합성 로직
