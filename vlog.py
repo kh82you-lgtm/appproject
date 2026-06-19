@@ -1,5 +1,6 @@
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
+import os
 
 # 1. 페이지 기본 설정
 st.set_page_config(page_title="나만의 브이로그 메이커", layout="wide")
@@ -38,86 +39,112 @@ def wrap_text(text, max_chars=20):
     return "\n".join(final_lines)
 
 # -------------------------------------------------------------------------
-# [함수] 이미지에 자막 합성하기 (좌우 자동 중앙 정렬 기능 탑재)
+# [함수] 이미지에 자막 합성하기 (글자 크기 버그 해결 및 반투명 배경 추가)
 # -------------------------------------------------------------------------
 def draw_text_on_image(image, text, position, color, size):
+    # 원본 이미지 복사 및 드로우 객체 생성
     img_to_draw = image.copy()
-    draw = ImageDraw.Draw(img_to_draw)
-    width, height = img_to_draw.size
     
-    # 20자 기준 자동 줄바꿈 처리
-    wrapped_text = wrap_text(text, max_chars=20)
-    
-    # 시스템 기본 한글 폰트 불러오기
+    # 💥 글자 크기가 실제로 커지도록 강제하는 한글 폰트 탐색 로직 (경로 보강)
     font = None
     font_paths = [
-        "C:/Windows/Fonts/malgun.ttf",       # Windows (맑은고딕)
-        "/System/Library/Fonts/Supplemental/AppleGothic.ttf", # Mac
-        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"     # Linux
+        "C:/Windows/Fonts/malgun.ttf",          # Windows 맑은고딕
+        "C:/Windows/Fonts/gulim.ttc",           # Windows 굴림
+        "/System/Library/Fonts/Supplemental/AppleGothic.ttf", # Mac 애플고딕
+        "/System/Library/Fonts/Cache/AppleGothic.ttf",
+        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf"     # Linux 나눔고딕
     ]
+    
     for path in font_paths:
-        try:
-            font = ImageFont.truetype(path, int(size))
-            break
-        except:
-            continue
-            
+        if os.path.exists(path):
+            try:
+                # 사용자가 선택한 size가 그대로 반영됩니다!
+                font = ImageFont.truetype(path, int(size))
+                break
+            except:
+                continue
+                
+    # 만약 위 경로에서 못 찾으면 Pillow가 제공하는 가변 크기 내장 폰트 사용
     if font is None:
         try:
-            font = ImageFont.load_default()
+            font = ImageFont.load_default(size=int(size)) # Pillow 최신 버전 대응
         except:
-            font = None
-        
-    # 줄바꿈된 텍스트 전체의 높이와 너비 계산
+            font = ImageFont.load_default() # 최후의 수단 (크기 고정될 수 있음)
+            
+    # 20자 기준 줄바꿈
+    wrapped_text = wrap_text(text, max_chars=20)
     lines = wrapped_text.split('\n')
     num_lines = len(lines)
     
-    # 폰트 객체가 있을 때와 없을 때의 텍스트 크기 측정 방식 대응
-    if font and hasattr(draw, "textbbox"):
-        # 가장 긴 줄을 기준으로 가로 너비 측정
-        max_line_width = 0
-        for line in lines:
-            bbox = draw.textbbox((0, 0), line, font=font)
-            line_w = bbox[2] - bbox[0]
-            if line_w > max_line_width:
-                max_line_width = line_w
-        
-        # 전체 텍스트 높이 측정
-        sample_bbox = draw.textbbox((0, 0), wrapped_text, font=font)
-        text_height = sample_bbox[3] - sample_bbox[1]
-    else:
-        # 기본 폰트일 경우 대략적인 픽셀 계산 계산
-        max_line_width = max([len(line) for line in lines]) * (size * 0.6)
-        text_height = num_lines * (size + 5)
+    width, height = img_to_draw.size
     
-    # 1. 세로(Y축) 위치 설정
-    if position == "상단 (Top)":
-        y = 50
-    elif position == "중단 (Middle)":
-        y = (height - text_height) // 2
-    else:
-        y = height - text_height - 50
+    # 글자 크기 및 배치 계산을 위한 임시 드로우
+    temp_draw = ImageDraw.Draw(img_to_draw)
+    
+    # 전체 텍스트 박스 크기 계산
+    max_line_width = 0
+    line_heights = []
+    
+    for line in lines:
+        if hasattr(temp_draw, "textbbox") and font:
+            bbox = temp_draw.textbbox((0, 0), line, font=font)
+            line_w = bbox[2] - bbox[0]
+            line_h = bbox[3] - bbox[1]
+        else:
+            # 폰트를 정말 못 가져왔을 때의 예외 처리 계산식
+            line_w = len(line) * (size * 0.7)
+            line_h = size
         
-    # 2. 가로(X축) 자동 중앙 정렬 계산 
-    # (이미지 전체 너비 - 글자 전체 너비) 나누기 2 = 정확한 중앙
-    x = (width - max_line_width) // 2
-    if x < 10:  # 글자가 사진보다 커서 밖으로 나가는 것 방지 최소 마진
-        x = 10
-
-    # 줄 단위로 개별 정렬하여 그려주기 (여러 줄일 때도 각각 중앙에 오도록)
+        if line_w > max_line_width:
+            max_line_width = line_w
+        line_heights.append(line_h)
+        
+    total_text_height = sum(line_heights) + (15 * (num_lines - 1))
+    
+    # 1. 세로(Y축) 시작 위치 결정
+    if position == "상단 (Top)":
+        y = 60
+    elif position == "중단 (Middle)":
+        y = (height - total_text_height) // 2
+    else:
+        y = height - total_text_height - 80
+        
+    # 🎬 가독성을 위한 검은색 반투명 자막 바 배경 그리기
+    # 텍스트가 들어갈 영역에 살짝 여백(Padding)을 줍니다.
+    padding = 20
+    bg_layer = Image.new("RGBA", img_to_draw.size, (0, 0, 0, 0))
+    bg_draw = ImageDraw.Draw(bg_layer)
+    
+    bg_x1 = (width - max_line_width) // 2 - padding
+    bg_y1 = y - padding
+    bg_x2 = (width + max_line_width) // 2 + padding
+    bg_y2 = y + total_text_height + padding
+    
+    # 범위를 벗어나지 않도록 안전조치
+    bg_x1 = max(10, bg_x1)
+    bg_x2 = min(width - 10, bg_x2)
+    
+    # 검은색(0,0,0)에 투명도 140(대략 55%)으로 배경 박스 그리기
+    bg_draw.rectangle([bg_x1, bg_y1, bg_x2, bg_y2], fill=(0, 0, 0, 140))
+    
+    # 원본 이미지와 반투명 배경 레이어 합성
+    img_to_draw = Image.alpha_composite(img_to_draw.convert("RGBA"), bg_layer)
+    final_draw = ImageDraw.Draw(img_to_draw)
+    
+    # 2. 줄 단위로 중앙 정렬하여 글씨 쓰기
     current_y = y
     for line in lines:
-        if font and hasattr(draw, "textbbox"):
-            bbox = draw.textbbox((0, 0), line, font=font)
+        if hasattr(final_draw, "textbbox") and font:
+            bbox = final_draw.textbbox((0, 0), line, font=font)
             line_w = bbox[2] - bbox[0]
         else:
-            line_w = len(line) * (size * 0.6)
+            line_w = len(line) * (size * 0.7)
             
         line_x = (width - line_w) // 2
-        draw.text((line_x, current_y), line, fill=color, font=font)
-        current_y += (size + 10) # 다음 줄 간격
+        final_draw.text((line_x, current_y), line, fill=color, font=font)
+        current_y += (size + 15) # 줄 간격 격차
         
-    return img_to_draw
+    return img_to_draw.convert("RGB")
 
 # -------------------------------------------------------------------------
 # 사이드바: 3단계 - 저작권 프리 배경음악 설정
@@ -153,7 +180,7 @@ if uploaded_files:
                 "text": "지아랑 온유는 올리브영을 좋아해♥",
                 "position": "상단 (Top)",
                 "color": "#00FF00",
-                "size": 60  # 센터 정렬 확인용으로 조금 키웠습니다
+                "size": 50  # 기본 글자 크기를 키웠습니다.
             })
 
 # 업로드된 사진 편집 창 표시
@@ -169,7 +196,7 @@ if st.session_state.project_images:
                 txt = st.text_input(f"자막 타이핑 (최대 20자 제안)", value=item["text"], key=f"txt_{i}")
                 pos = st.selectbox("자막 위치", ["상단 (Top)", "중단 (Middle)", "하단 (Bottom)"], index=["상단 (Top)", "중단 (Middle)", "하단 (Bottom)"].index(item["position"]), key=f"pos_{i}")
                 col_picker = st.color_picker("글자 색상 선택", value=item["color"], key=f"col_{i}")
-                size_slider = st.slider("글자 크기", 10, 150, value=item["size"], key=f"size_{i}")
+                size_slider = st.slider("글자 크기", 20, 200, value=item["size"], key=f"size_{i}") # 최소 크기를 20으로 조절
                 
                 if st.button(f"✨ {i+1}번 사진 자막 적용하기", key=f"btn_{i}"):
                     st.session_state.project_images[i]["text"] = txt
@@ -179,11 +206,11 @@ if st.session_state.project_images:
                     
                     edited_img = draw_text_on_image(item["original"], txt, pos, col_picker, size_slider)
                     st.session_state.project_images[i]["edited"] = edited_img
-                    st.success("중앙 정렬 자막이 정상적으로 반영되었습니다!")
+                    st.success("자막 크기와 정렬이 정상적으로 반영되었습니다!")
                     st.rerun()
                 
             with col2:
-                st.write("🔍 미리보기 (좌우 자동 중앙 정렬 적용됨)")
+                st.write("🔍 미리보기 (좌우 센터 정렬 및 글자 배경 바 적용)")
                 st.image(st.session_state.project_images[i]["edited"], use_container_width=True)
 
 # -------------------------------------------------------------------------
